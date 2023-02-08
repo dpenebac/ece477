@@ -12,7 +12,6 @@ void init_usart_1(){
     USART1->CR1 &= ~(USART_CR1_PCE); //Disable parity bit
     USART1->CR2 &= ~(USART_CR2_STOP); //Use 1 stop bit
     USART1->CR1 &= ~(USART_CR1_OVER8); //Use oversampling by 16
-    //USART1->CR2 |= USART_CR2_DATAINV; //Reverse polarity
     USART1->BRR &= ~0xFFFF; //Clear baud rate
     USART1->BRR |= 0x9C4; //Set baud rate to 19200bps
     USART1->CR1 |= USART_CR1_TE; //Enable TX
@@ -58,11 +57,6 @@ void init_test(){
     GPIOC->MODER |= (1 << 12); //Set PC6 for general output
     GPIOC->MODER |= (1 << 14); //Set PC7 for general output
     GPIOB->PUPDR |= (1 << 5); //Pull down resister on PB2
-    //RCC->APB2ENR |= 1;
-    //SYSCFG->EXTICR[0] |= (1 << 8); //Set EXTI2 to PB2
-    //EXTI->RTSR |= (1 << 2); //Set rising trigger on EXTI2
-    //EXTI->IMR |= (1 << 2); //Unmask EXTI2 interrupt
-    //NVIC->ISER[0] |= (1 << 6); //Enable interrupt
     uint8_t clear_user_command[8] = {0xF5, 0x05, 0x00, 0x00, 0x00, 0x00, 0x05, 0xF5}; //Command to clear users
     finger_send_command(clear_user_command); //Send command to clear users
 }
