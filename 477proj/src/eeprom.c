@@ -1,19 +1,13 @@
-/**
-  ******************************************************************************
-  * @file    main.c
-  * @author  Ac6
-  * @version V1.0
-  * @date    01-December-2013
-  * @brief   Default main function.
-  ******************************************************************************
-*/
-
-
 #include "stm32f0xx.h"
 #include <stddef.h>
-#include "stm32f0xx.h"
+#include "keypad_lcd.h"
+#include <string.h>
 
+#include <eeprom.h>
 #define EEPROM_ADDR 0x50
+
+// Structure to hold fingerprint and passcode information
+int max_passcode_length = 20;
 
 //===========================================================================
 // 2.2 I2C helpers
@@ -33,23 +27,23 @@ void init_i2c(void) {
     RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
 
     GPIOB->MODER &= ~(
-            GPIO_MODER_MODER6 |
-            GPIO_MODER_MODER7
+            GPIO_MODER_MODER8 |
+            GPIO_MODER_MODER9
     );
 
     GPIOB->MODER |= (
-            GPIO_MODER_MODER6_1 |
-            GPIO_MODER_MODER7_1
+            GPIO_MODER_MODER8_1 |
+            GPIO_MODER_MODER9_1
     );
 
-    GPIOB->AFR[0] &= ~(
-            GPIO_AFRL_AFR6 |
-            GPIO_AFRL_AFR7
+    GPIOB->AFR[1] &= ~(
+            GPIO_AFRH_AFR8 |
+            GPIO_AFRH_AFR9
     );
 
-    GPIOB->AFR[0] |= (
-            (1 << (4 * 6)) |
-            (1 << (4 * 7))
+    GPIOB->AFR[1] |= (
+            (1 << (4 * 0)) |
+            (1 << (4 * 1))
     ); //setting 6 and 7 to be af1
 
     /*
@@ -232,7 +226,12 @@ void eeprom_write(uint16_t loc, const char* data, uint8_t len) {
     //tmp[0] = 02
     //tmp[1] = 34
 
-    char tmp[32];
+    // loc >> 8 == 02
+    // tmp[0] == 0x02 & 0x0f == 0x02
+    // loc == 0x0234
+    // tmp[1] == 0x0234 & 0xff == 0x34
+
+    char tmp[34];
     tmp[0] = (loc >> 8) & 0x0f;
     tmp[1] = loc & 0xff;
 
@@ -274,49 +273,40 @@ int eeprom_write_complete(void) {
 }
 
 void eeprom_read(uint16_t loc, char data[], uint8_t len) {
+    TIM7->CR1 &= ~TIM_CR1_CEN; // Pause keypad scanning.
 
-    char tmp[32];
+    char tmp[34];
     tmp[0] = (loc >> 8) & 0x0f;
     tmp[1] = loc & 0xff;
 
     i2c_senddata(EEPROM_ADDR,tmp,2);
     i2c_recvdata(EEPROM_ADDR,data,len);
 
+    TIM7->CR1 |= TIM_CR1_CEN; // Resume keypad scanning.
+
     return;
 }
 
 
 void eeprom_blocking_write(uint16_t loc, const char* data, uint8_t len) {
+    TIM7->CR1 &= ~TIM_CR1_CEN; // Pause keypad scanning.
     eeprom_write(loc, data, len);
-    while (!eeprom_write_complete());
+    while (!eeprom_write_complete()); //never finishes
+    TIM7->CR1 |= TIM_CR1_CEN; // Resume keypad scanning.
 }
-
-void update_users(void);
-void format_users(char []);
-void read_users();
-void unformat_users(char []);
-void reset_users(void);
-void zero_users(void);
-
-
-// Structure to hold fingerprint and passcode information
-struct user {
-    uint8_t fingerprint_id;
-    uint8_t passcode[5];
-};
-
-struct user user_list[5];
 
 // Test function to set user_list of users all to zero to test functionality of i2c read
 void zero_users(void) {
     int i;
     int j;
 
-    for(i = 0; i < 5; i++) {
-        user_list[i].fingerprint_id = 0;
-        for (j = 0; j < 5; j++) {
-            user_list[i].passcode[j] = 0;
+    j = 0;
+
+    while (j < 5) {
+        for(i = 0; i < max_passcode_length; i++) {
+            user_list[j].passcode[i] = 0;
         }
+        j += 1;
     }
 }
 
@@ -326,57 +316,40 @@ void reset_users(void) {
     int i;
     int j;
 
-    for(i = 0; i < 5; i++) {
-        user_list[i].fingerprint_id = i;
-        for (j = 0; j < 5; j++) {
-            user_list[i].passcode[j] = i + j;
+    j = 0;
+    while (j < 2) { // only 2 passwords
+        for(i = 0; i < max_passcode_length; i++) {
+            user_list[j].passcode[i] = (30 - i) % 10;
+            test_list[j].passcode[i] = (30 - i) % 10;
         }
+        j += 1;
     }
+
+    strcpy(user_list[0].passcode, "1234567890ABCD123456");
+    strcpy(test_list[0].passcode, "1234567890ABCD123456");
+
+    strcpy(user_list[1].passcode, "11111111111111111111");
+    strcpy(test_list[1].passcode, "11111111111111111111");
+
+    strcpy(user_list[2].passcode, "11111111111111111112");
+    strcpy(test_list[2].passcode, "11111111111111111112");
+
+    strcpy(user_list[3].passcode, "11111111111111111113");
+    strcpy(test_list[3].passcode, "11111111111111111113");
 }
 
 // Updates EEPROM data
 void update_users(void) {
-    char users[30];
+    int address;
+    char passcode[31];
 
-    format_users(users);
-
-    eeprom_blocking_write((uint16_t)0x00, users, 30);
-}
-
-// Formats user_list structure into a single array to write to EEPROM
-void format_users(char users[]) {
-
-    int i;
-    int j;
-    int c;
-
-    c = 0;
-
-    for (i = 0; i < 30; i += 6) {
-        users[i] = user_list[c].fingerprint_id;
-        for (j = 1; j < 5; j++) {
-            users[i + j] = user_list[c].passcode[j - 1];
+    address = 0;
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < max_passcode_length; j++) {
+            passcode[j] = user_list[i].passcode[j];
         }
-        c += 1;
-    }
-
-    return;
-}
-
-// Converts array data into user_list structure
-void unformat_users(char users[]) { //writes into global struct
-    int i;
-    int j;
-    int c = 0;
-
-    int k, l;
-
-    for (i = 0; i < 30; i += 6) {
-        user_list[c].fingerprint_id = users[i];
-        for (j = 1; j < 5; j++) {
-            user_list[c].passcode[j - 1] = users[i + j];
-        }
-        c += 1;
+        eeprom_blocking_write((uint16_t)address, passcode, max_passcode_length);
+        address += 32;
     }
 }
 
@@ -384,17 +357,23 @@ void unformat_users(char users[]) { //writes into global struct
 void read_users(void) {
 
     //read_scores
+    int address;
+    char passcode[32];
 
-    char users[30];
+    address = 0;
 
-    eeprom_read((uint16_t)0x00, users, 30);
-
-    unformat_users(users);
+    for (int i = 0; i < 5; i++) {
+        eeprom_read((uint16_t)address, passcode, max_passcode_length);
+        for (int j = 0; j < max_passcode_length; j++) {
+            user_list[i].passcode[j] = passcode[j];
+        }
+        address += 32;
+    }
 
     return;
 }
 
-int eeprom(void)
+int main_eeprom(void) // eeprom
 {
 
     //to write, call
@@ -402,6 +381,8 @@ int eeprom(void)
     //loc = 0x32 location must be divisible by 32
 
     init_i2c(); // initiate i2c
+
+    zero_users(); // clear user_list structure
 
     reset_users(); // set user_list structure to some for loop based logic value
 
@@ -411,132 +392,13 @@ int eeprom(void)
 
     read_users(); // read back information from EEPROM and update user_list structure
 
-    return(0);
-}
-
-			
-void init_usart5(void) {
-
-    /*
-    Enable the RCC clocks to GPIOC and GPIOD.
-
-    Do all the steps necessary to configure pin PC12 to be routed to USART5_TX.
-
-    Do all the steps necessary to configure pin PD2 to be routed to USART5_RX.
-
-    Enable the RCC clock to the USART5 peripheral.
-    */
-
-    RCC->AHBENR |= RCC_AHBENR_GPIOCEN | RCC_AHBENR_GPIODEN;
-
-    /*
-    RX : PC12, AF2 : DIO 0
-    TX : PD2,  AF2 : DIO 1
-     */
-
-    //10 alternate function
-    GPIOC->MODER |= 2 << (12 * 2);
-    GPIOD->MODER |= 2 << (2 * 2);
-
-    GPIOC->AFR[1] |= 2 << (4 * 4);
-    GPIOD->AFR[0] |= 2 << (2 * 4);
-
-    RCC->APB1ENR |= RCC_APB1ENR_USART5EN;
-
-    /*
-    Configure USART5 as follows:
-    (First, disable it by turning off its UE bit.)
-
-    Set a word size of 8 bits.
-
-    Set it for one stop bit.
-
-    Set it for no parity.
-
-    Use 16x oversampling.
-
-    Use a baud rate of 115200 (115.2 kbaud). Refer to table 96 of the Family Reference Manual,
-    or simply divide the system clock rate by 115200.
-
-    Enable the transmitter and the receiver by setting the TE and RE bits.
-
-    Enable the USART.
-
-    Finally, you should wait for the TE and RE bits to be acknowledged by checking that TEACK
-    and REACK bits are both set in the ISR. This indicates that the USART is ready to transmit and receive.
-
-    */
-
-    USART5->CR1 &= ~(USART_CR1_UE);
-
-    USART5->CR1 &= ~((1 << 28) | (1 << 12));
-
-    USART5->CR2 &= ~(3 << 12);
-
-    USART5->CR1 &= ~(USART_CR1_PCE);
-
-    USART5->CR1 &= ~(USART_CR1_OVER8);
-
-    // to set to 9600, brr == 1388
-    USART5->BRR |= 0x1388;
-
-    USART5->CR1 |= USART_CR1_TE | USART_CR1_RE;
-
-    USART5->CR1 |= USART_CR1_UE;
-
-    while ( USART_ISR_TEACK != (USART5->ISR & USART_ISR_TEACK) &&
-            USART_ISR_REACK != (USART5->ISR & USART_ISR_REACK)
-    );
-
-    return;
-}
-
-int main2(void)
-{
-
-    //to write, call
-    //eeprom_blocking_write(uint16_t loc, const char* data, uint8_t len)
-    //loc = 0x32 location must be divisible by 32
-
-    init_i2c(); // initiate i2c
-
-    reset_users(); // set user_list structure to some for loop based logic value
-
-    update_users(); // write user_list structure to EEPROM
-
-    zero_users(); // clear user_list structure
-
-    read_users(); // read back information from EEPROM and update user_list structure
-
-    return(0);
-}
-
-int main(void)
-{
-
-    // PC12 HM19:RXD STM32:TX
-    // PD2  HM19:TXD STM32:RX
-
-    // F0:5E:CD:E2:21:B4
-
-    init_usart5();
-
-    char *c = "batman";
-    // AT+ADDR? check mac addr, useful for pi but pretty useless without connection
-    // AT+CONNL, try to connect to last succeeded device
-    // AT+RENEW, factory reset
-
-    int f;
-    f = 0;
-
-    for (;;) {
-        while(!(USART5->ISR & USART_ISR_TXE)) { }
-        USART5->TDR = c[f];
-        f++;
-
-        if (c[f] == 0) {
-            break;
+    for (int i = 0; i < 5; i++) {
+        if (strcmp(test_list[i].passcode, user_list[i].passcode) != 0) { // check each passcode
+            for (;;) {
+                spi1_dma_display2("EEPROM Broken");
+            }
         }
     }
 
+    return 0;
 }
