@@ -32,10 +32,10 @@ endif
 all: multifactor.elf
 
 # Tool invocations
-multifactor.elf: $(OBJS) $(USER_OBJS) C:\Users\Ryan\workspace\multifactor/LinkerScript.ld
+multifactor.elf: $(OBJS) $(USER_OBJS) C:\Users\Ryan\Documents\GitHub\ece477\ECE477/LinkerScript.ld
 	@echo 'Building target: $@'
 	@echo 'Invoking: MCU GCC Linker'
-	arm-none-eabi-gcc -mcpu=cortex-m0 -mthumb -mfloat-abi=soft -T"C:/Users/Ryan/workspace/multifactor/LinkerScript.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "multifactor.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
+	arm-none-eabi-gcc -mcpu=cortex-m0 -mthumb -mfloat-abi=soft -T"C:/Users/Ryan/Documents/GitHub/ece477/ECE477/LinkerScript.ld" -Wl,-Map=output.map -Wl,--gc-sections -o "multifactor.elf" @"objects.list" $(USER_OBJS) $(LIBS) -lm
 	@echo 'Finished building target: $@'
 	@echo ' '
 	$(MAKE) --no-print-directory post-build
